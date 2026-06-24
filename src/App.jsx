@@ -2,16 +2,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, TrendingUp, TrendingDown, Trash2, DollarSign, Briefcase, Activity, LayoutDashboard, Wallet, PieChart, RefreshCcw, Landmark, Coins, Search, X, LogOut } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { getAuth, signInWithCustomToken, signInAnonymously, signOut, onAuthStateChanged } from "firebase/auth";
+// [수정점 1] 구글 로그인을 위한 GoogleAuthProvider, signInWithPopup 추가, signInAnonymously 제거
+import { getAuth, signInWithCustomToken, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 
-// 1. Firebase 초기화 (캔버스 환경 변수 우선 적용, 없을 시 유저의 설정값 폴백)
+// [수정점 2] 새로 제공해주신 Firebase 키값으로 완벽 교체 및 빌드 오류 방지
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
+  apiKey: "AIzaSyDJFseNi9MYqyrt7zE9shu_AIKT1XxUWCs",
+  authDomain: "my-stock-app-tw.firebaseapp.com",
+  projectId: "my-stock-app-tw",
+  storageBucket: "my-stock-app-tw.firebasestorage.app",
+  messagingSenderId: "465142956068",
+  appId: "1:465142956068:web:7c012185050686ab4b98b1"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -58,14 +59,12 @@ export default function App() {
 
   const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
 
-  // [수정점 1] 팝업 이슈를 피하기 위한 자동 로그인 처리 (Custom Token or Anonymously)
+  // [수정점 3] 익명 로그인을 끄고, 캔버스 환경과 구글 로그인 연동으로 수정
   useEffect(() => {
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
         }
       } catch (err) {
         setAuthError("인증 초기화 실패: " + err.message);
@@ -81,6 +80,21 @@ export default function App() {
     return () => unsubscribeAuth();
   }, []);
 
+  // [수정점 4] 구글 팝업 로그인 실행 함수 추가
+  const handleGoogleLogin = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        setAuthError("구글 로그인 실패: " + error.message);
+      }
+      setAuthLoading(false);
+    }
+  };
+
   const handleLogout = () => {
     setConfirmDialog({
       isOpen: true,
@@ -92,7 +106,6 @@ export default function App() {
     });
   };
 
-  // [수정점 2] Firestore 데이터 동기화 시 올바른 경로 지정
   useEffect(() => {
     if (!user) {
       setAccounts([]);
@@ -120,7 +133,6 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // [수정점 3] 성능 최적화: 무거운 계산은 useMemo를 사용하여 캐싱 처리
   const accountStats = useMemo(() => {
     const getValKRW = (val, currency) => currency === 'USD' ? val * exchangeRate : val;
 
@@ -159,7 +171,6 @@ export default function App() {
     });
   }, [accounts, exchangeRate]);
 
-  // 대시보드 요약용 Data Memoization
   const { 
     globalTotalAssets, globalPrincipal, globalStockInvested, 
     globalStockCurrent, globalTotalProfit, globalYieldPercent, globalTotalDividend 
@@ -289,7 +300,6 @@ export default function App() {
     return <span className="text-blue-600 ml-1 text-xs">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>;
   };
 
-  // 4. 데이터 조작 (Firebase 연동 경로 수정)
   const handleAddAccount = async (e) => {
     e.preventDefault();
     if (!newAccountForm.name.trim() || !user) return;
@@ -535,11 +545,12 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center font-sans">
         <RefreshCcw className="w-8 h-8 text-blue-600 animate-spin mb-4" />
-        <p className="text-gray-500 text-sm font-medium">보안 서버와 안전하게 연결 중입니다...</p>
+        <p className="text-gray-500 text-sm font-medium">인증 정보를 확인 중입니다...</p>
       </div>
     );
   }
 
+  // [수정점 5] 익명 로그인을 제거하고 구글 로그인 팝업 버튼 UI 제공
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 font-sans">
@@ -548,15 +559,28 @@ export default function App() {
             <Activity className="w-10 h-10 text-blue-600" />
           </div>
           <h1 className="text-3xl font-extrabold text-gray-900 mb-3 tracking-tight">내 주식 매니저</h1>
-          <p className="text-gray-500 text-sm mb-6 leading-relaxed">
-            세상에서 가장 안전한 나만의 자산 관리.<br/>
-            구글 계정으로 로그인 후 이용해 주세요.
+          <p className="text-gray-500 text-sm mb-8 leading-relaxed">
+            나만의 맞춤형 투자 포트폴리오 관리.<br/>
+            구글 계정으로 안전하게 시작하세요.
           </p>
           
+          <button 
+            onClick={handleGoogleLogin} 
+            className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 text-gray-700 px-6 py-3.5 rounded-xl font-bold shadow-sm hover:bg-gray-50 hover:shadow-md transition-all active:scale-[0.98] mb-4"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Google 계정으로 로그인
+          </button>
+          
           {authError && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs text-left animate-in fade-in overflow-hidden break-words">
-              <p className="font-bold mb-2">💡 확인이 필요합니다</p>
-              <p className="whitespace-pre-wrap leading-relaxed select-all">{authError}</p>
+            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs text-left animate-in fade-in overflow-hidden break-words">
+              <p className="font-bold mb-1 flex items-center gap-1.5"><X className="w-3 h-3"/> 로그인 실패</p>
+              <p className="leading-relaxed select-all">{authError}</p>
             </div>
           )}
         </div>
@@ -577,9 +601,11 @@ export default function App() {
               {user.photoURL ? (
                 <img src={user.photoURL} alt="profile" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full border border-white shadow-sm" />
               ) : (
-                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gray-300 border border-white shadow-sm"></div>
+                <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gray-300 border border-white shadow-sm flex items-center justify-center font-bold text-white text-[10px]">
+                  {user.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
+                </div>
               )}
-              <span className="text-xs sm:text-sm font-semibold text-gray-700 hidden sm:inline">{user.displayName || '게스트'}님</span>
+              <span className="text-xs sm:text-sm font-semibold text-gray-700 hidden sm:inline truncate max-w-[100px]">{user.displayName || '사용자'}님</span>
               <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 transition-colors ml-1 p-1 hover:bg-red-50 rounded-full" title="로그아웃">
                 <LogOut className="w-4 h-4" />
               </button>
